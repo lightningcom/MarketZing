@@ -9,6 +9,8 @@ The other sections are currently navigation and layout scaffolds. Their data sou
 - Intraday index moves and sparklines for four regions
 - Market breadth summary: advancing indices, average move, leader, and laggard
 - Automatic chart refresh while the Markets page is open
+- NSE market snapshot with breadth, investor flows, movers, and sector performance
+- Reusable NSE index performance table with sparklines and value-tinted period returns
 - Shared page header and navigation across the app
 - Multipage structure ready for future macro, trading, flow, economy, fund, world-market, watchlist, and research tools
 
@@ -42,11 +44,11 @@ requirements.txt
 ### Request and rendering flow
 
 1. Streamlit starts `dashboard.py`, which registers each page with `st.navigation`.
-2. The selected page runs. `00_Markets.py` requests one-minute index data from Yahoo Finance via `yfinance`.
-3. The Markets page renders index sparklines and a breadth summary. Its chart fragment refreshes every 20 seconds while open.
+2. The selected page runs. `00_Markets.py` requests one-minute index data from Yahoo Finance via `yfinance` and snapshot data from NSE India's public market-data endpoints.
+3. The Markets page renders index sparklines, a global asset carousel, and an NSE snapshot. `render_index_performance_table` can display broad-market or sector-index rows from the NSE feed; it fills missing return periods from NSE historical index-close archives and builds a distinct 52-week sparkline from those closes when NSE has no chart for an index.
 4. Page headers and section links are rendered by `navigation.py`. The other pages currently use its shared placeholder layout.
 
-Market data availability, freshness, and ticker coverage depend on Yahoo Finance and `yfinance`; data may be delayed or unavailable. This dashboard is for informational purposes only and is not investment advice.
+Market data availability, freshness, and ticker coverage depend on Yahoo Finance, `yfinance`, and NSE India endpoints; data may be delayed, rate-limited, or unavailable. This dashboard is for informational purposes only and is not investment advice.
 
 ## Run locally
 
