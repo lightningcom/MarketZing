@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from html import escape
 
 import numpy as np
@@ -175,6 +175,7 @@ def render_nse_snapshot():
     if get_api_error(breadth_payload):
         st.warning(f"NSE breadth data unavailable: {get_api_error(breadth_payload)}")
         return
+
     advance_data = breadth_payload.get("advance", {})
     advance_data = advance_data if isinstance(advance_data, dict) else {}
     breadth_counts = advance_data.get("count", {})
@@ -183,15 +184,15 @@ def render_nse_snapshot():
     declines = get_api_number(breadth_counts, "Declines", "declines")
     unchanged = get_api_number(breadth_counts, "Unchange", "Unchanged", "unchanged")
     breadth_available = advances is not None and declines is not None and unchanged is not None
-    advances = int(advances or 0)
-    declines = int(declines or 0)
-    unchanged = int(unchanged or 0)
-    label_date = str(breadth_payload.get("timestamp") or "latest close")
+    advances = int(advances) if advances is not None else 0
+    declines = int(declines) if declines is not None else 0
+    unchanged = int(unchanged) if unchanged is not None else 0
+    breadth_date = str(breadth_payload.get("timestamp") or "latest available")
     total = advances + declines + unchanged
 
-    breadth_column, flows_column, movers_column = st.columns([1, 1.05, 1.5], gap="large")
+    breadth_column, flows_column = st.columns([1, 1.05], gap="large")
     with breadth_column:
-        st.markdown(f"**Breadth** · {label_date}")
+        st.markdown(f"**Breadth** · {escape(breadth_date)}")
         if breadth_available and total:
             advancing_width = advances / total * 100
             st.markdown(
@@ -206,6 +207,7 @@ def render_nse_snapshot():
             )
         else:
             st.caption("NSE breadth data unavailable")
+
         high_data = market_data["week52_high"]
         low_data = market_data["week52_low"]
         high_rows = (
@@ -220,6 +222,7 @@ def render_nse_snapshot():
         )
         year_highs = str(len(high_rows)) if isinstance(high_rows, list) else "N/A"
         year_lows = str(len(low_rows)) if isinstance(low_rows, list) else "N/A"
+
         indices_payload = market_data["indices"]
         all_indices = get_api_rows(indices_payload)
         nifty = next(
@@ -231,6 +234,7 @@ def render_nse_snapshot():
         )
         index_price = get_api_number(nifty, "last", "lastPrice", "indexValue")
         index_price_text = f"{index_price:,.2f}" if index_price is not None else "N/A"
+
         st.markdown(
             f'<div style="margin-top:12px;padding:7px 0;border-bottom:1px solid '
             f'color-mix(in srgb,currentColor 15%,transparent);font-size:13px">'
@@ -251,19 +255,32 @@ def render_nse_snapshot():
             st.caption(f"NSE index level unavailable: {get_api_error(indices_payload)}")
 
     with flows_column:
-        st.markdown(f"**Flows** · {label_date}")
         flows = market_data["flows"]
         if get_api_error(flows):
+            st.markdown("**Flows**")
             st.caption(f"NSE flows unavailable: {get_api_error(flows)}")
         else:
             flow_rows = get_api_rows(flows)
-            latest_date = flow_rows[0].get("date") if flow_rows else None
+            dated_flows = []
+            for row in flow_rows:
+                raw_date = str(row.get("date", ""))
+                try:
+                    parsed_date = datetime.strptime(raw_date, "%d-%b-%Y")
+                except ValueError:
+                    continue
+                dated_flows.append((parsed_date, raw_date, row))
+            latest_date = max(
+                dated_flows,
+                key=lambda item: item[0],
+                default=(None, None, None),
+            )[1]
             latest_flows = [
-                row for row in flow_rows if row.get("date") == latest_date
+                row for _, row_date, row in dated_flows if row_date == latest_date
             ]
+            st.markdown(f"**Flows** · {escape(latest_date or 'latest available')}")
             for row in latest_flows:
                 net_value = get_api_number(row, "netValue", "net")
-                category = str(row.get("category", "Investor"))
+                category = escape(str(row.get("category", "Investor")))
                 if net_value is None:
                     continue
                 color = "#73adff" if net_value >= 0 else "#e87552"
@@ -277,51 +294,6 @@ def render_nse_snapshot():
                 )
             if not latest_flows:
                 st.caption("No recent FPI/DII flow data")
-            elif latest_date:
-                st.caption(f"Latest available session: {latest_date}")
-
-    with movers_column:
-        st.markdown(f"**Biggest moves** · {label_date}")
-        gainers_payload = market_data["gainers"]
-        losers_payload = market_data["losers"]
-        mover_error = get_api_error(gainers_payload) or get_api_error(losers_payload)
-        gainers = get_api_rows(gainers_payload.get("allSec", {}))
-        losers = get_api_rows(losers_payload.get("allSec", {}))
-        if mover_error:
-            st.caption(f"NSE mover data unavailable: {mover_error}")
-        elif gainers or losers:
-            positive_column, negative_column = st.columns(2, gap="small")
-            with positive_column:
-                for row in gainers:
-                    change = get_api_number(row, "pchange", "pChange", "perChange", "percentChange")
-                    name = str(row.get("symbol") or row.get("companyName") or "—")
-                    if change is None:
-                        continue
-                    st.markdown(
-                        f'<div style="display:flex;justify-content:space-between;gap:8px;'
-                        f'padding:6px 0;border-bottom:1px solid '
-                        f'color-mix(in srgb,currentColor 15%,transparent);font-size:13px">'
-                        f'<span>{escape(name)}</span><strong style="color:#73adff">'
-                        f'{change:+.1f}%</strong></div>',
-                        unsafe_allow_html=True,
-                    )
-            with negative_column:
-                for row in losers:
-                    change = get_api_number(row, "pchange", "pChange", "perChange", "percentChange")
-                    name = str(row.get("symbol") or row.get("companyName") or "—")
-                    if change is None:
-                        continue
-                    st.markdown(
-                        f'<div style="display:flex;justify-content:space-between;gap:8px;'
-                        f'padding:6px 0;border-bottom:1px solid '
-                        f'color-mix(in srgb,currentColor 15%,transparent);font-size:13px">'
-                        f'<span>{escape(name)}</span><strong style="color:#e87552">'
-                        f'{change:+.1f}%</strong></div>',
-                        unsafe_allow_html=True,
-                    )
-            st.caption("Top market-wide NSE movers")
-        else:
-            st.caption("No recent NSE mover data")
 
     st.markdown("**Sectors today**")
     sectors = market_data["sectors"]
@@ -340,7 +312,6 @@ def render_nse_snapshot():
         best_change = max(abs(change) for _, change in sector_changes) or 1
         left_sectors, right_sectors = st.columns(2, gap="large")
         sector_columns = (left_sectors, right_sectors)
-        sector_changes = sector_changes[:20]
         split_at = (len(sector_changes) + 1) // 2
         for column, sector_group in zip(
             sector_columns,
@@ -364,6 +335,62 @@ def render_nse_snapshot():
                     )
     else:
         st.caption("Sector index data unavailable")
+
+    st.markdown("**Biggest moves**")
+    gainers_payload = market_data["gainers"]
+    losers_payload = market_data["losers"]
+    mover_error = get_api_error(gainers_payload) or get_api_error(losers_payload)
+    gainers = get_api_rows(gainers_payload.get("allSec", {}))
+    losers = get_api_rows(losers_payload.get("allSec", {}))
+    if mover_error:
+        st.caption(f"NSE mover data unavailable: {mover_error}")
+    elif gainers or losers:
+        positive_column, negative_column = st.columns(2, gap="large")
+        with positive_column:
+            st.markdown("**Positive moves**")
+            positive_rows = []
+            for row in gainers:
+                change = get_api_number(
+                    row, "pchange", "pChange", "perChange", "percentChange"
+                )
+                if change is not None and change > 0:
+                    positive_rows.append((row, change))
+            for row, change in positive_rows[:5]:
+                name = escape(str(row.get("symbol") or row.get("companyName") or "—"))
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-between;gap:8px;'
+                    f'padding:6px 0;border-bottom:1px solid '
+                    f'color-mix(in srgb,currentColor 15%,transparent);font-size:13px">'
+                    f'<span>{name}</span><strong style="color:#73adff">'
+                    f'{change:+.1f}%</strong></div>',
+                    unsafe_allow_html=True,
+                )
+            if not positive_rows:
+                st.caption("No positive NSE movers")
+        with negative_column:
+            st.markdown("**Negative moves**")
+            negative_rows = []
+            for row in losers:
+                change = get_api_number(
+                    row, "pchange", "pChange", "perChange", "percentChange"
+                )
+                if change is not None and change < 0:
+                    negative_rows.append((row, change))
+            for row, change in negative_rows[:5]:
+                name = escape(str(row.get("symbol") or row.get("companyName") or "—"))
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-between;gap:8px;'
+                    f'padding:6px 0;border-bottom:1px solid '
+                    f'color-mix(in srgb,currentColor 15%,transparent);font-size:13px">'
+                    f'<span>{name}</span><strong style="color:#e87552">'
+                    f'{change:+.1f}%</strong></div>',
+                    unsafe_allow_html=True,
+                )
+            if not negative_rows:
+                st.caption("No negative NSE movers")
+    else:
+        st.caption("No recent NSE mover data")
+
     st.caption("Source: NSE India public market-data endpoints")
 
 
