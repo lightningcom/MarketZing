@@ -59,15 +59,15 @@ MARKET_INDICES = {
 }
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=100, show_spinner=True)
 def download_index_data(market_name: str) -> pd.DataFrame:
     symbols = [symbol for _, symbol in MARKET_INDICES[market_name]]
     return yf.download(
         tickers=" ".join(symbols),
         period="1d",
-        interval="5m",
+        interval="1m",
         group_by="ticker",
-        progress=False,
+        progress=True,
         threads=True,
     )
 
@@ -108,7 +108,7 @@ def make_index_sparkline_svg(series: pd.Series, label: str) -> str:
     )
     point_targets = "".join(
         f'<circle cx="{x:.2f}" cy="{y:.2f}" r="5" fill="transparent" '
-        f'pointer-events="all"><title>{timestamp.strftime("%H:%M") if hasattr(timestamp, "strftime") else timestamp}: '
+        f'pointer-events="all"><title>{timestamp.strftime("%H:%M:%S") if hasattr(timestamp, "strftime") else timestamp}: '
         f'{value:,.2f}</title></circle>'
         for (x, y), timestamp, value in zip(points, series.index, values)
     )
